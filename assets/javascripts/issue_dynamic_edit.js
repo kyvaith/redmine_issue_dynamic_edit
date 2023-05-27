@@ -245,6 +245,23 @@ const cloneEditForm = function(){
   	}
 }
 
+const updateIssueDetails = function () {
+	fetch(LOCATION_HREF, {
+		method: 'GET',
+		crossDomain: true,
+	})
+		.then(res => res.text())
+		.then(data => {
+			const parser = new DOMParser();
+			const doc = parser.parseFromString(data, 'text/html');
+			document.querySelector('form#issue-form').innerHTML = doc.querySelector('form#issue-form').innerHTML;
+			document.querySelector('#all_attributes').innerHTML = doc.querySelector('#all_attributes').innerHTML;
+			document.querySelector('div.issue.details').innerHTML = doc.querySelector('div.issue.details').innerHTML;
+
+			cloneEditForm();
+	})
+}
+
 /* Perform action on .value (display edit form) */
 document.querySelector('body').addEventListener(_CONF_LISTENER_TYPE_VALUE,
  	function(e){
@@ -394,7 +411,9 @@ let setCheckVersionInterval = function(activate){
 	}
 }
 
-setCheckVersionInterval(true);
+if(typeof REDMINE_RT == 'undefined') {
+    setCheckVersionInterval(true);
+}
 
 /* Global function to perform AJAX call */
 let sendData = function(serialized_data){
@@ -442,21 +461,37 @@ let sendData = function(serialized_data){
 							document.querySelector("#errorExplanation").innerHTML = error.innerHTML;
 						}
 
-						doc = fetch(LOCATION_HREF, {
-							method: 'GET',
-							crossDomain: true,
-						}).then(res => res.text()).then(data => {
-							const parser = new DOMParser();
-							return parser.parseFromString(data, 'text/html');
-						});
+						updateIssueDetails();
 					} else {
 						if(document.querySelector("#errorExplanation")) document.querySelector("#errorExplanation").remove();
+
+						document.querySelector('form#issue-form').innerHTML = doc.querySelector('form#issue-form').innerHTML;
+						document.querySelector('#all_attributes').innerHTML = doc.querySelector('#all_attributes').innerHTML;
+						document.querySelector('div.issue.details').innerHTML = doc.querySelector('div.issue.details').innerHTML;
+
+						document.querySelector('#issue_lock_version').value = doc.querySelector("#issue_lock_version").value;
+
+						cloneEditForm(); 
 					}
 
-					document.querySelector('form#issue-form').innerHTML = doc.querySelector('form#issue-form').innerHTML;
-					document.querySelector('#all_attributes').innerHTML = doc.querySelector('#all_attributes').innerHTML;
-					document.querySelector('div.issue.details').innerHTML = doc.querySelector('div.issue.details').innerHTML;
+					//set datepicker fallback for input type date
+					if (
+						document.querySelector('input[type=date]') &&
+						$('body').find('input[type=date]').datepickerFallback instanceof Function &&
+						typeof datepickerOptions !== 'undefined'
+					) {
+						$('body').find('input[type=date]').datepickerFallback(datepickerOptions);
+					}
 
+					if(typeof REDMINE_RT !== 'undefined') return;
+
+					setCSRFTokenInput(doc.querySelector('input[name="authenticity_token"]').value);
+					updateCSRFToken(doc.querySelector('input[name="authenticity_token"]').value);
+
+					/* Once we've updated our issue, we have to reset the loadedDate to now to be up to date with the check version */
+					loadedDate = new Date();
+					setCheckVersionInterval(true);
+                    
 					let tch = document.querySelector('#tab-content-history');
 					// sometimes, there will be no tab-content-history yet (like when the issue was just created).
 					if(!tch) {
@@ -488,26 +523,6 @@ let sendData = function(serialized_data){
 							tch.appendChild(journal);
 						}
 					}
-
-					document.querySelector('#issue_lock_version').value = doc.querySelector("#issue_lock_version").value;
-
-					cloneEditForm();
-
-					//set datepicker fallback for input type date
-					if (
-						document.querySelector('input[type=date]') &&
-						$('body').find('input[type=date]').datepickerFallback instanceof Function &&
-						typeof datepickerOptions !== 'undefined'
-					) {
-						$('body').find('input[type=date]').datepickerFallback(datepickerOptions);
-					}
-
-					setCSRFTokenInput(doc.querySelector('input[name="authenticity_token"]').value);
-					updateCSRFToken(doc.querySelector('input[name="authenticity_token"]').value);
-
-					/* Once we've updated our issue, we have to reset the loadedDate to now to be up to date with the check version */
-					loadedDate = new Date();
-					setCheckVersionInterval(true);
 				} else {
 					callError(this.status);
 				}
@@ -516,7 +531,7 @@ let sendData = function(serialized_data){
 		request.send(formData);
 	}
 
-	if(_CONF_CHECK_ISSUE_UPDATE_CONFLICT){
+	if(typeof REDMINE_RT == 'undefined' && _CONF_CHECK_ISSUE_UPDATE_CONFLICT){
 		checkVersion(function(distant_version){
 			if(distant_version == document.querySelector('#issue_lock_version').value){
 				updateIssue(serialized_data);
@@ -532,3 +547,7 @@ let sendData = function(serialized_data){
 // Init plugin
 cloneEditForm();
 setCSRFTokenInput(document.querySelector('meta[name="csrf-token"]').getAttribute("content"));
+
+REDMINE_ISSUE_DYNAMIC_EDIT = {
+    updateIssueDetails
+}
