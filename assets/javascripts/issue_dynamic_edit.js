@@ -21,11 +21,37 @@ const SVG_VALID = '<svg style="width: 1em; height: 1em; fill:white;" version="1.
 const SVG_CANCEL = '<svg style="width: 1em; height: 1em;" version="1.1" viewBox="0 0 24 24" xml:space="preserve" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><g id="info"/><g id="icons"><path d="M14.8,12l3.6-3.6c0.8-0.8,0.8-2,0-2.8c-0.8-0.8-2-0.8-2.8,0L12,9.2L8.4,5.6c-0.8-0.8-2-0.8-2.8,0   c-0.8,0.8-0.8,2,0,2.8L9.2,12l-3.6,3.6c-0.8,0.8-0.8,2,0,2.8C6,18.8,6.5,19,7,19s1-0.2,1.4-0.6l3.6-3.6l3.6,3.6   C16,18.8,16.5,19,17,19s1-0.2,1.4-0.6c0.8-0.8,0.8-2,0-2.8L14.8,12z" class="svg_cancel"/></g></svg>';
 
 /*
+ * History DIV
+ */
+
+const HISTORY_DIV = `
+<div id="history">
+  <div class="tabs">
+  <ul>
+    <li><a id="tab-history" class="selected" onclick="showIssueHistory(&quot;history&quot;, this.href); return false;" href="/issues/38?tab=history">History</a></li>
+    <li><a id="tab-notes" onclick="showIssueHistory(&quot;notes&quot;, this.href); return false;" href="/issues/38?tab=notes">Notes</a></li>
+    <li><a id="tab-properties" onclick="showIssueHistory(&quot;properties&quot;, this.href); return false;" href="/issues/38?tab=properties">Property changes</a></li>
+  </ul>
+  <div class="tabs-buttons" style="display: none;">
+    <button class="tab-left" type="button" onclick="moveTabLeft(this);"></button>
+    <button class="tab-right" type="button" onclick="moveTabRight(this);"></button>
+  </div>
+  </div>
+  <div id="tab-content-history" class="tab-content" style=""></div>
+</div>`
+
+
+/*
  * Allow inclusion from other page
  * See https://github.com/Ilogeek/redmine_issue_dynamic_edit/commit/26684a2dd9b12dcc7377afd79e9fe5c142d26ebd for more info
  */
-const cleanURL = function(url){ let u = new URL(url); return `${u.protocol}//${u.host}${u.pathname}`; }
-let LOCATION_HREF = typeof custom_location_href !== 'undefined' ? cleanURL(custom_location_href) : cleanURL(window.location.href);
+
+let clean_url = (url) => {
+	let nu = new URL(url);
+	return `${nu.protocol}//${nu.host}${nu.pathname}`;
+}
+
+let LOCATION_HREF = typeof custom_location_href !== 'undefined' ? custom_location_href : clean_url(window.location.href);
 
 if (_CONF_FORCE_HTTPS) {
 	LOCATION_HREF = LOCATION_HREF.replace(/^http:\/\//i, 'https://');
@@ -119,6 +145,26 @@ const getEditFormHTML = function(attribute){
 	return null;
 }
 
+const item_is_visible = function (selectedTabId, item) {
+	//item is an array of dom elements. We need to reach the div.journal
+	var div = $(item).filter('div.journal').first();
+	if(selectedTabId == "tab-notes") {
+		if($(div).hasClass("has-notes")) {
+			return true;
+		} else {
+			return false;
+		}
+	} else if(selectedTabId == "tab-properties") {
+		if($(div).hasClass("has-details")) {
+			return true;
+		} else {
+			return false;
+		}
+	} else {
+		return true;
+	}
+}
+
 /* Loop over all form attribute and clone them into details part */
 const cloneEditForm = function(){
 	const btn_refresh = document.createElement('button');
@@ -192,6 +238,23 @@ const cloneEditForm = function(){
   		const formTitle = getEditFormHTML("issue_subject");
   		document.querySelector('div.issue.details div.subject').insertBefore(formTitle, null);
   	}
+}
+
+const updateIssueDetails = function () {
+	fetch(LOCATION_HREF, {
+		method: 'GET',
+		crossDomain: true,
+	})
+		.then(res => res.text())
+		.then(data => {
+			const parser = new DOMParser();
+			const doc = parser.parseFromString(data, 'text/html');
+			document.querySelector('form#issue-form').innerHTML = doc.querySelector('form#issue-form').innerHTML;
+			document.querySelector('#all_attributes').innerHTML = doc.querySelector('#all_attributes').innerHTML;
+			document.querySelector('div.issue.details').innerHTML = doc.querySelector('div.issue.details').innerHTML;
+
+			cloneEditForm();
+	})
 }
 
 /* Perform action on .value (display edit form) */
@@ -322,7 +385,9 @@ let setCheckVersionInterval = function(activate){
 	}
 }
 
-setCheckVersionInterval(true);
+if(typeof REDMINE_RT == 'undefined') {
+    setCheckVersionInterval(true);
+}
 
 /* Global function to perform AJAX call */
 let sendData = function(serialized_data){
@@ -370,15 +435,17 @@ let sendData = function(serialized_data){
 							document.querySelector("#errorExplanation").innerHTML = error.innerHTML;
 						}
 
-						doc = fetch(LOCATION_HREF, {
-							method: 'GET',
-							crossDomain: true,
-						}).then(res => res.text()).then(data => {
-							const parser = new DOMParser();
-							return parser.parseFromString(data, 'text/html');
-						});
+						updateIssueDetails();
 					} else {
 						if(document.querySelector("#errorExplanation")) document.querySelector("#errorExplanation").remove();
+
+						document.querySelector('form#issue-form').innerHTML = doc.querySelector('form#issue-form').innerHTML;
+						document.querySelector('#all_attributes').innerHTML = doc.querySelector('#all_attributes').innerHTML;
+						document.querySelector('div.issue.details').innerHTML = doc.querySelector('div.issue.details').innerHTML;
+
+						document.querySelector('#issue_lock_version').value = doc.querySelector("#issue_lock_version").value;
+
+						cloneEditForm(); 
 					}
 
 					if(document.querySelector('form#issue-form')) document.querySelector('form#issue-form').innerHTML = doc.querySelector('form#issue-form').innerHTML;
@@ -404,12 +471,46 @@ let sendData = function(serialized_data){
 						$('body').find('input[type=date]').datepickerFallback(datepickerOptions);
 					}
 
+					if(typeof REDMINE_RT !== 'undefined') return;
+
 					setCSRFTokenInput(doc.querySelector('input[name="authenticity_token"]').value);
 					updateCSRFToken(doc.querySelector('input[name="authenticity_token"]').value);
 
 					/* Once we've updated our issue, we have to reset the loadedDate to now to be up to date with the check version */
 					loadedDate = new Date();
 					setCheckVersionInterval(true);
+                    
+					let tch = document.querySelector('#tab-content-history');
+					// sometimes, there will be no tab-content-history yet (like when the issue was just created).
+					if(!tch) {
+						let parser = new DOMParser();
+						let dom = parser.parseFromString(HISTORY_DIV, 'text/html');
+						let newHistory = dom.querySelector('div'); 
+						let oldHistory = document.querySelector('div#history');
+						oldHistory.parentNode.replaceChild(newHistory, oldHistory);
+						tch = document.querySelector('#tab-content-history');
+					}
+
+					let query
+					if(_COMMENTS_IN_REVERSE_ORDER_) {
+						query = '#history .journal.has-details:first-child';
+					} else {
+						query = '#history .journal.has-details:last-child';
+					}
+
+					let journal = doc.querySelector(query);
+					if(journal) {
+						let selectedTabId = $("#history .tabs ul li a.selected").attr("id");
+						if(!item_is_visible(selectedTabId, journal)) {
+							$(journal).css('display', 'none');
+						}
+
+						if(_COMMENTS_IN_REVERSE_ORDER_) {
+							tch.insertBefore(journal, tch.firstChild);
+						} else {
+							tch.appendChild(journal);
+						}
+					}
 				} else {
 					callError(this.status);
 				}
@@ -418,7 +519,7 @@ let sendData = function(serialized_data){
 		request.send(formData);
 	}
 
-	if(_CONF_CHECK_ISSUE_UPDATE_CONFLICT){
+	if(typeof REDMINE_RT == 'undefined' && _CONF_CHECK_ISSUE_UPDATE_CONFLICT){
 		checkVersion(function(distant_version){
 			if(distant_version == document.querySelector('#issue_lock_version').value){
 				updateIssue(serialized_data);
@@ -434,3 +535,7 @@ let sendData = function(serialized_data){
 // Init plugin
 cloneEditForm();
 setCSRFTokenInput(document.querySelector('meta[name="csrf-token"]').getAttribute("content"));
+
+REDMINE_ISSUE_DYNAMIC_EDIT = {
+    updateIssueDetails
+}
